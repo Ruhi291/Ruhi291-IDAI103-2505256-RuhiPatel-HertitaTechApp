@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 from datetime import datetime
 
 # Page configuration
@@ -10,8 +10,30 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-genai.configure(api_key="AIzaSyDQ1INhcUHP0Iou4EAuZRo5f3Y6JcZg5Ns")
-model = genai.GenerativeModel('gemini-1.5-flash-latest')
+# Initialize Gemini API with secrets
+@st.cache_resource
+def initialize_gemini():
+    """Initialize Gemini client with API key from secrets"""
+    try:
+        if "GEMINI_API_KEY" not in st.secrets:
+            st.error("❌ API Key not found! Please add GEMINI_API_KEY to .streamlit/secrets.toml")
+            st.stop()
+        
+        api_key = st.secrets["GEMINI_API_KEY"]
+        
+        if not api_key or api_key.strip() == "":
+            st.error("❌ API Key is empty!")
+            st.stop()
+        
+        client = genai.Client(api_key=api_key)
+        return client
+    
+    except Exception as e:
+        st.error(f"❌ Error initializing Gemini: {str(e)}")
+        st.stop()
+
+# Initialize the client
+client = initialize_gemini()
 
 # Dark mode state
 if 'dark_mode' not in st.session_state:
@@ -172,396 +194,374 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize Gemini API
-try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-2.0-flash')
-except Exception as e:
-    st.error("⚠️ Gemini API key not found. Please add GEMINI_API_KEY to .streamlit/secrets.toml")
-    st.stop()
-
-# All 12 Restoration Features
-RESTORATION_FEATURES = {
-    "baroque_restoration": {
-        "icon": "🎭",
-        "name": "Baroque Painting Restoration",
-        "description": "Restore Baroque artworks with dramatic lighting and rich shadows",
-        "prompt_template": """You are an expert art restoration specialist for Baroque period artworks (1600-1750).
-
-Artwork Details:
-- Type: {artwork_type}
-- Period: Baroque (1600-1750)
-- Artist: {artist}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Analysis of Baroque characteristics (dramatic lighting, intense emotions, rich colors, chiaroscuro)
-2. Specific step-by-step techniques to restore the damaged area
-3. Color palette recommendations typical of Baroque period (deep reds, golds, browns)
-4. Brushstroke patterns and texturing methods used by Baroque masters
-5. How to maintain the dramatic chiaroscuro (light and shadow) effect
-6. Materials needed for restoration
-7. Conservation tips to prevent future damage
-
-Be specific, technical, and historically accurate in your recommendations."""
-    },
-
-    "renaissance_restoration": {
-        "icon": "🖼️",
-        "name": "Renaissance Art Restoration",
-        "description": "Restore Renaissance masterpieces with classical techniques",
-        "prompt_template": """You are an expert art restoration specialist for Renaissance period artworks (1400-1600).
-
-Artwork Details:
-- Type: {artwork_type}
-- Period: Renaissance (1400-1600)
-- Artist: {artist}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Analysis of Renaissance characteristics (perspective, naturalism, balanced composition)
-2. Techniques for restoring sfumato and chiaroscuro effects
-3. Traditional pigments and materials (lapis lazuli, lead white, vermillion)
-4. Methods to restore facial features and anatomical accuracy
-5. Gold leaf restoration if applicable
-6. Varnish removal and reapplication techniques
-7. Panel vs canvas specific restoration approaches
-
-Be historically accurate and technically precise."""
-    },
-
-    "mughal_miniature": {
-        "icon": "🕌",
-        "name": "Mughal Miniature Restoration",
-        "description": "Restore intricate Mughal-era miniature paintings and manuscripts",
-        "prompt_template": """You are an expert in Mughal miniature painting restoration.
-
-Artwork Details:
-- Type: Mughal Miniature
-- Period: {period}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Analysis of Mughal miniature characteristics (fine details, vibrant colors, Persian influence)
-2. Techniques for restoring floral borders and geometric patterns
-3. Gold and silver leaf application methods
-4. Traditional Mughal pigments (vermillion, indigo, gold)
-5. Methods to restore facial features in the distinctive Mughal profile style
-6. Border and margin restoration techniques
-7. Paper support stabilization
-8. Ink reconstruction methods
-
-Focus on authenticity and traditional methods."""
-    },
-
-    "sculpture_restoration": {
-        "icon": "🗿",
-        "name": "Sculpture & 3D Art Restoration",
-        "description": "Restore damaged sculptures, statues, and 3D artworks",
-        "prompt_template": """You are an expert in sculpture and three-dimensional art restoration.
-
-Sculpture Details:
-- Material: {material}
-- Period/Style: {period}
-- Type: {sculpture_type}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Structural assessment and stability analysis
-2. Material-specific restoration techniques for {material}
-3. Methods to reconstruct missing features using symmetry and period references
-4. Surface treatment and patina restoration
-5. Adhesive and fill material recommendations
-6. Support and mounting recommendations
-7. Environmental protection strategies
-8. Documentation methods before and after restoration
-
-Be specific about materials, tools, and techniques."""
-    },
-
-    "textile_tapestry": {
-        "icon": "🧵",
-        "name": "Textile & Tapestry Restoration",
-        "description": "Restore historic textiles, tapestries, and fabric artworks",
-        "prompt_template": """You are an expert in textile and tapestry restoration.
-
-Textile Details:
-- Type: {textile_type}
-- Period: {period}
-- Material: {material}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Fiber analysis and conservation assessment
-2. Thread matching and color restoration techniques
-3. Weaving pattern reconstruction methods
-4. Embroidery restoration techniques
-5. Support backing recommendations
-6. Wet cleaning vs dry cleaning considerations
-7. Display and storage recommendations
-8. Moth damage and biological threat treatment
-
-Focus on preserving original materials while ensuring longevity."""
-    },
-
-    "medieval_manuscript": {
-        "icon": "📜",
-        "name": "Medieval Manuscript Restoration",
-        "description": "Restore illuminated manuscripts, ancient texts, and religious scrolls",
-        "prompt_template": """You are an expert in medieval manuscript and illuminated text restoration.
-
-Manuscript Details:
-- Type: {manuscript_type}
-- Period: {period}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Parchment or vellum stabilization techniques
-2. Ink restoration and missing text reconstruction
-3. Illumination and gold leaf restoration
-4. Margin decoration and border pattern restoration
-5. Calligraphy style matching techniques
-6. Binding repair recommendations
-7. Pigment analysis and color matching
-8. Humidity and environmental control for preservation
-
-Maintain historical accuracy and use period-appropriate materials."""
-    },
-
-    "expressionist_abstract": {
-        "icon": "🎨",
-        "name": "Modern & Abstract Art Restoration",
-        "description": "Restore Expressionist, Abstract, Cubist and Modern artworks",
-        "prompt_template": """You are an expert in modern and abstract art restoration.
-
-Artwork Details:
-- Style: {style}
-- Period: {period}
-- Medium: {medium}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Analysis of the artist's unique technique and intention
-2. Methods to recreate abstract brushwork and texture
-3. Color field restoration techniques
-4. Impasto and thick paint reconstruction
-5. Techniques for restoring spontaneity and energy of brushstrokes
-6. Modern material considerations (acrylic, synthetic pigments, mixed media)
-7. Documentation of restoration decisions
-8. Ethical considerations in restoring intentional damage or decay
-
-Respect the artist's original vision and spontaneous energy."""
-    },
-
-    "fresco_mural": {
-        "icon": "🏛️",
-        "name": "Fresco & Mural Restoration",
-        "description": "Restore ancient wall paintings, frescoes, and large-scale murals",
-        "prompt_template": """You are an expert in fresco and mural restoration.
-
-Fresco Details:
-- Type: {fresco_type}
-- Period: {period}
-- Location: {location}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Structural assessment of wall, plaster, and support
-2. True fresco (buon fresco) vs. secco fresco restoration differences
-3. Lime-based pigment matching techniques
-4. Water damage and salt efflorescence treatment
-5. Detached plaster reattachment methods
-6. Color restoration while preserving historical patina
-7. Environmental control to prevent future damage
-8. Documentation and photographic recording methods
-
-Consider architectural context and historical significance."""
-    },
-
-    "asian_scroll": {
-        "icon": "🎋",
-        "name": "Asian Scroll & Screen Restoration",
-        "description": "Restore Japanese, Chinese, Korean scroll paintings and screens",
-        "prompt_template": """You are an expert in East Asian scroll and screen painting restoration.
-
-Artwork Details:
-- Origin: {origin}
-- Style: {style}
-- Period: {period}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Silk or paper support restoration and lining techniques
-2. Ink wash painting reconstruction methods
-3. Traditional mounting and remounting (hyogu) techniques
-4. Seal and signature restoration
-5. Brocade border and mounting fabric repair
-6. Traditional East Asian pigment matching
-7. Scroll roller and hanging mechanism restoration
-8. Japanese or Chinese paper selection for repairs
-
-Use traditional East Asian conservation methods."""
-    },
-
-    "icon_religious": {
-        "icon": "✝️",
-        "name": "Religious Icon Restoration",
-        "description": "Restore Byzantine icons, sacred panel paintings and religious art",
-        "prompt_template": """You are an expert in religious icon and sacred art restoration.
-
-Icon Details:
-- Tradition: {tradition}
-- Period: {period}
-- Panel Type: {panel_type}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Traditional icon painting techniques (egg tempera on gesso)
-2. Symbolic color meanings and theologically accurate restoration
-3. Face (liki) and hand (desnitsa) restoration following iconographic canons
-4. Gold leaf (gilding) and halo restoration methods
-5. Wood panel stabilization and crack consolidation
-6. Darkened varnish (olifa) removal techniques
-7. Respect for religious significance during restoration
-8. Documentation respecting theological importance
-
-Maintain theological authenticity and artistic tradition."""
-    },
-
-    "photography_restoration": {
-        "icon": "📸",
-        "name": "Historic Photography Restoration",
-        "description": "Restore vintage photographs and early photographic processes",
-        "prompt_template": """You are an expert in historic photography and photographic print restoration.
-
-Photograph Details:
-- Process: {process}
-- Period: {period}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Identification and analysis of photographic process characteristics
-2. Chemical deterioration assessment and stabilization
-3. Physical damage repair (tears, creases, missing sections)
-4. Fading and silver mirroring treatment
-5. Foxing and mold removal techniques
-6. Digital vs. analog restoration decision framework
-7. Archival housing and storage recommendations
-8. Digitization best practices for preservation
-
-Preserve historical integrity while ensuring long-term stability."""
-    },
-
-    "pottery_ceramic": {
-        "icon": "🏺",
-        "name": "Pottery & Ceramic Restoration",
-        "description": "Restore ceramic vessels, ancient pottery and glazed artworks",
-        "prompt_template": """You are an expert in ceramic and pottery restoration.
-
-Ceramic Details:
-- Type: {ceramic_type}
-- Period/Culture: {period}
-- Glaze Type: {glaze}
-- Damage Description: {damage}
-
-Provide detailed restoration suggestions including:
-1. Fragment identification, sorting, and cleaning
-2. Adhesive selection for different ceramic bodies
-3. Missing section fill and reconstruction methods
-4. Glaze matching techniques for different glaze types
-5. Surface retouching and color matching
-6. Structural reinforcement for display
-7. Documentation of all restoration decisions
-8. Display mount and support recommendations
-
-Balance aesthetic restoration with archaeological integrity."""
-    }
-}
-
-# Sidebar
+# Sidebar navigation
 with st.sidebar:
-    st.title("🎨 ArtRestorer AI")
-    st.markdown("---")
-
-    # Dark mode toggle
-    if st.button("🌙 Dark Mode" if not st.session_state.dark_mode else "☀️ Light Mode", use_container_width=True):
-        st.session_state.dark_mode = not st.session_state.dark_mode
-        st.rerun()
-
-    st.markdown("---")
-
-    if st.button("🏠 Home", use_container_width=True):
+    st.markdown("### 🎨 Navigation")
+    
+    if st.button("🏠 Home", use_container_width=True, type="primary" if st.session_state.page == 'home' else "secondary"):
         st.session_state.page = 'home'
         st.session_state.selected_feature = None
         st.rerun()
-
-    if st.button("📊 My Restorations", use_container_width=True):
+    
+    if st.button("📊 My History", use_container_width=True, type="primary" if st.session_state.page == 'history' else "secondary"):
         st.session_state.page = 'history'
         st.rerun()
-
-    if st.button("ℹ️ About", use_container_width=True):
+    
+    if st.button("ℹ️ About", use_container_width=True, type="primary" if st.session_state.page == 'about' else "secondary"):
         st.session_state.page = 'about'
         st.rerun()
-
+    
+    st.markdown("---")
+    
+    # Dark mode toggle
+    dark_mode_toggle = st.checkbox("🌙 Dark Mode", value=st.session_state.dark_mode)
+    if dark_mode_toggle != st.session_state.dark_mode:
+        st.session_state.dark_mode = dark_mode_toggle
+        st.rerun()
+    
     st.markdown("---")
     st.markdown("### 📈 Statistics")
     st.metric("Total Restorations", len(st.session_state.restorations))
-    unique_types = len(set(r.get('feature', '') for r in st.session_state.restorations))
-    st.metric("Art Types Explored", unique_types)
+
+# Feature definitions
+FEATURES = {
+    "baroque_painting": {
+        "name": "🎭 Baroque Painting Restoration",
+        "icon": "🎭",
+        "description": "Restore dramatic Baroque masterpieces with chiaroscuro techniques",
+        "prompt_template": """You are an expert art conservator specializing in Baroque period paintings (1600-1750).
+
+Artist/School: {artist}
+Period: {period}
+Medium: {medium}
+Damage Description: {damage}
+
+Please provide:
+1. **Assessment**: Analyze the painting's condition, typical Baroque techniques (chiaroscuro, dramatic lighting, rich colors), and the extent of damage.
+2. **Restoration Approach**: Detail the step-by-step restoration process specific to Baroque paintings, including cleaning, stabilization, and inpainting techniques.
+3. **Materials & Techniques**: Recommend period-appropriate materials and modern conservation methods.
+4. **Color Matching**: Guidance on matching the rich, deep colors characteristic of Baroque art.
+5. **Preservation**: Long-term care recommendations to preserve this historical artwork.
+
+Be detailed, historically accurate, and consider the dramatic nature of Baroque art."""
+    },
+    "renaissance_painting": {
+        "name": "🖼️ Renaissance Masterpiece Restoration",
+        "icon": "🖼️",
+        "description": "Restore Renaissance paintings with classical techniques and precision",
+        "prompt_template": """You are an expert art conservator specializing in Renaissance paintings (1400-1600).
+
+Artist/Region: {artist}
+Period: {period}
+Medium: {medium}
+Damage Description: {damage}
+
+Please provide:
+1. **Historical Context**: Explain the painting's historical significance and Renaissance techniques (sfumato, linear perspective, naturalism).
+2. **Condition Assessment**: Detailed analysis of the damage and its impact on the artwork.
+3. **Restoration Plan**: Step-by-step conservation process respecting Renaissance materials and techniques.
+4. **Technical Considerations**: Address challenges specific to Renaissance art (egg tempera, wood panels, gold leaf).
+5. **Documentation**: Recommendations for documenting the restoration process.
+6. **Ethical Considerations**: Balance between preserving original work and necessary interventions.
+
+Focus on historical accuracy and reverence for the masterwork."""
+    },
+    "mughal_miniature": {
+        "name": "🕌 Mughal Miniature Conservation",
+        "icon": "🕌",
+        "description": "Preserve intricate Mughal miniature paintings with traditional methods",
+        "prompt_template": """You are an expert conservator specializing in Mughal miniature paintings (16th-19th century).
+
+School/Period: {school}
+Subject Matter: {subject}
+Base Material: {material}
+Damage Description: {damage}
+
+Please provide:
+1. **Cultural Context**: Explain the painting's historical and cultural significance in Mughal art tradition.
+2. **Technical Analysis**: Assess the intricate details, gold work, natural pigments, and traditional techniques.
+3. **Damage Assessment**: Analyze specific issues (pigment loss, paper deterioration, binding damage, foxing).
+4. **Conservation Approach**: Detailed restoration plan using traditional Indian conservation methods combined with modern techniques.
+5. **Materials**: Recommend appropriate conservation materials respecting traditional Mughal painting techniques.
+6. **Handling Guidelines**: Special care instructions for these delicate artworks.
+7. **Display Recommendations**: Lighting, humidity, and mounting suggestions.
+
+Be culturally sensitive and technically precise."""
+    },
+    "sculpture_3d": {
+        "name": "🗿 Sculpture & 3D Artwork Restoration",
+        "icon": "🗿",
+        "description": "Restore sculptures, statues, and three-dimensional artworks",
+        "prompt_template": """You are an expert conservator specializing in three-dimensional artworks and sculptures.
+
+Sculpture Type: {sculpture_type}
+Material: {material}
+Period/Style: {period}
+Damage Description: {damage}
+
+Please provide:
+1. **Material Analysis**: Assess the sculpture's material (stone, bronze, wood, etc.) and its condition.
+2. **Structural Assessment**: Evaluate structural integrity and stability issues.
+3. **Damage Evaluation**: Analyze breaks, missing pieces, surface deterioration, patina loss, etc.
+4. **Restoration Strategy**: Detailed plan for cleaning, stabilization, reconstruction, and finishing.
+5. **Technical Methods**: Specific techniques for the material type (welding, bonding, carving, molding).
+6. **Color/Patina Matching**: Guidelines for matching original surface treatments.
+7. **Support & Display**: Recommendations for mounting and display systems.
+8. **Environmental Control**: Temperature, humidity, and light exposure guidelines.
+
+Focus on both aesthetic and structural integrity."""
+    },
+    "textile_tapestry": {
+        "name": "🧵 Textile & Tapestry Conservation",
+        "icon": "🧵",
+        "description": "Restore historical textiles, tapestries, and fabric artworks",
+        "prompt_template": """You are an expert textile conservator specializing in historical fabrics and tapestries.
+
+Textile Type: {textile_type}
+Period: {period}
+Material/Fibers: {material}
+Damage Description: {damage}
+
+Please provide:
+1. **Fiber Analysis**: Assess the textile's material, weave structure, and dye analysis.
+2. **Condition Report**: Detail all damage (tears, fading, moth damage, weakened fibers, stains).
+3. **Conservation Plan**: Step-by-step process for cleaning, stabilization, and repair.
+4. **Stabilization Methods**: Techniques for supporting weakened areas and preventing further damage.
+5. **Cleaning Approach**: Safe cleaning methods appropriate for the textile type and dyes.
+6. **Repair Techniques**: Detailed guidance on weaving, patching, or invisible mending.
+7. **Storage & Display**: Proper mounting, hanging, and storage recommendations.
+8. **Pest Prevention**: Protection against moths, beetles, and other textile pests.
+
+Be gentle and preservation-focused in your approach."""
+    },
+    "medieval_manuscript": {
+        "name": "📜 Medieval Manuscript Restoration",
+        "icon": "📜",
+        "description": "Preserve illuminated manuscripts and ancient texts",
+        "prompt_template": """You are an expert manuscript conservator specializing in medieval illuminated manuscripts and ancient texts.
+
+Manuscript Type: {manuscript_type}
+Period: {period}
+Damage Description: {damage}
+
+Please provide:
+1. **Manuscript Analysis**: Assess the parchment/paper, ink types, illuminations, and binding.
+2. **Condition Assessment**: Evaluate all damage (tears, ink fading, water damage, mold, binding issues).
+3. **Conservation Priority**: Prioritize interventions based on urgency and risk.
+4. **Treatment Plan**: Detailed restoration process for pages, illuminations, and binding.
+5. **Cleaning Methods**: Safe techniques for removing dirt and stains without damaging ink or illuminations.
+6. **Repair Techniques**: Methods for mending tears, reinforcing pages, and stabilizing the binding.
+7. **Illumination Preservation**: Special care for gold leaf and colored illuminations.
+8. **Digitization Recommendations**: Guidance for safe digitization to reduce handling.
+9. **Storage Environment**: Optimal conditions for long-term preservation.
+
+Handle with reverence and historical sensitivity."""
+    },
+    "expressionist_abstract": {
+        "name": "🎨 Expressionist & Abstract Art Restoration",
+        "icon": "🎨",
+        "description": "Restore modern and abstract artworks with contemporary techniques",
+        "prompt_template": """You are an expert conservator specializing in modern and contemporary art, particularly Expressionist and Abstract works.
+
+Art Style: {style}
+Period: {period}
+Medium: {medium}
+Damage Description: {damage}
+
+Please provide:
+1. **Artistic Intent**: Consider the artist's original intent and techniques (impasto, dripping, collage, etc.).
+2. **Material Analysis**: Assess modern materials (acrylics, mixed media, unconventional materials).
+3. **Condition Report**: Evaluate damage specific to modern art (texture loss, cracking, fading, surface issues).
+4. **Conservation Approach**: Balance preservation with respecting the artist's intent and materials.
+5. **Technical Challenges**: Address issues unique to modern materials and techniques.
+6. **Surface Treatment**: Methods for cleaning and stabilizing while preserving texture and finish.
+7. **Color Matching**: Techniques for matching modern pigments and surface qualities.
+8. **Ethical Considerations**: When to restore vs. when to preserve as-is.
+
+Be innovative while respecting the artwork's integrity."""
+    },
+    "fresco_mural": {
+        "name": "🏛️ Fresco & Mural Restoration",
+        "icon": "🏛️",
+        "description": "Restore wall paintings and frescoes with specialized techniques",
+        "prompt_template": """You are an expert fresco and mural conservator.
+
+Fresco Type: {fresco_type}
+Period: {period}
+Location: {location}
+Damage Description: {damage}
+
+Please provide:
+1. **Technical Analysis**: Assess the fresco technique (buon fresco, secco, mixed) and wall substrate.
+2. **Damage Assessment**: Evaluate issues like detachment, water damage, salt efflorescence, paint loss, biological growth.
+3. **Structural Evaluation**: Check wall stability and moisture problems.
+4. **Conservation Strategy**: Detailed plan for cleaning, consolidation, and reattachment.
+5. **Consolidation Methods**: Techniques for stabilizing flaking or detaching paint layers.
+6. **Desalination**: Processes for removing harmful salts if present.
+7. **Retouching Approach**: Guidelines for integrating losses while respecting the original.
+8. **Environmental Control**: Address humidity, water infiltration, and climate issues.
+9. **Long-term Monitoring**: Plan for ongoing assessment and maintenance.
+
+Focus on both immediate and long-term preservation."""
+    },
+    "asian_scroll": {
+        "name": "🎋 Asian Scroll & Screen Restoration",
+        "icon": "🎋",
+        "description": "Preserve East Asian scrolls, screens, and paintings",
+        "prompt_template": """You are an expert conservator specializing in East Asian paintings, scrolls, and screens.
+
+Origin: {origin}
+Style: {style}
+Period: {period}
+Damage Description: {damage}
+
+Please provide:
+1. **Cultural Context**: Explain the artwork's cultural significance and traditional techniques.
+2. **Material Analysis**: Assess silk, paper, mounting materials, and inks used.
+3. **Condition Assessment**: Evaluate damage (tears, water stains, detached mounting, foxing, insect damage).
+4. **Traditional Techniques**: Incorporate traditional Asian conservation methods (remounting, lining).
+5. **Conservation Plan**: Step-by-step process respecting Eastern conservation philosophies.
+6. **Remounting Strategy**: If needed, plan for traditional remounting techniques.
+7. **Ink & Color Preservation**: Special care for delicate inks and pigments.
+8. **Handling & Storage**: Traditional methods for rolling, storing, and displaying scrolls.
+9. **Humidity Control**: Critical environmental guidelines for Asian artworks.
+
+Be culturally informed and technically precise."""
+    },
+    "icon_religious": {
+        "name": "✝️ Icon & Religious Art Conservation",
+        "icon": "✝️",
+        "description": "Restore religious icons with reverence and traditional methods",
+        "prompt_template": """You are an expert conservator specializing in religious icons and sacred art.
+
+Religious Tradition: {tradition}
+Period: {period}
+Panel Type: {panel_type}
+Damage Description: {damage}
+
+Please provide:
+1. **Theological Significance**: Acknowledge the sacred nature and theological importance of the icon.
+2. **Technical Analysis**: Assess the panel, gesso layer, tempera paint, and any gilding.
+3. **Condition Report**: Evaluate cracks, flaking paint, darkened varnish, losses, structural issues.
+4. **Conservation Philosophy**: Balance reverence with necessary interventions.
+5. **Treatment Plan**: Detailed restoration process including cleaning, consolidation, and retouching.
+6. **Varnish Removal**: Safe methods for removing darkened varnish layers.
+7. **Gilding Restoration**: Techniques for repairing or stabilizing gold leaf.
+8. **Retouching Ethics**: Guidelines for minimal, reversible interventions.
+9. **Blessing & Ritual**: Acknowledge any religious protocols for handling sacred objects.
+
+Approach with reverence and cultural sensitivity."""
+    },
+    "photography_restoration": {
+        "name": "📸 Historic Photography Restoration",
+        "icon": "📸",
+        "description": "Restore and preserve vintage photographs and prints",
+        "prompt_template": """You are an expert photograph conservator specializing in historic photographic processes.
+
+Photographic Process: {process}
+Period: {period}
+Damage Description: {damage}
+
+Please provide:
+1. **Process Identification**: Explain the specific photographic process and its characteristics.
+2. **Chemical Analysis**: Assess the chemical stability and deterioration patterns.
+3. **Condition Assessment**: Evaluate fading, tears, foxing, silver mirroring, vinegar syndrome, etc.
+4. **Conservation Approach**: Detailed plan specific to the photographic process.
+5. **Stabilization Methods**: Techniques for halting chemical deterioration.
+6. **Cleaning Techniques**: Safe methods for removing surface dirt and stains.
+7. **Repair Strategies**: Approaches for mending tears and reinforcing fragile areas.
+8. **Digitization**: Guidelines for creating digital surrogates.
+9. **Storage Environment**: Optimal conditions for photographic materials.
+10. **Handling Protocols**: Safe handling to prevent further damage.
+
+Be process-specific and chemistry-aware."""
+    },
+    "pottery_ceramic": {
+        "name": "🏺 Pottery & Ceramic Restoration",
+        "icon": "🏺",
+        "description": "Restore ceramic vessels, pottery, and clay artworks",
+        "prompt_template": """You are an expert ceramics conservator specializing in pottery and ceramic artifacts.
+
+Ceramic Type: {ceramic_type}
+Period/Culture: {period}
+Glaze Type: {glaze}
+Damage Description: {damage}
+
+Please provide:
+1. **Archaeological Context**: If applicable, consider the artifact's archaeological or cultural significance.
+2. **Material Analysis**: Assess the clay body, firing technique, and glaze composition.
+3. **Condition Report**: Evaluate cracks, missing pieces, glaze loss, staining, previous repairs.
+4. **Conservation Plan**: Step-by-step process for cleaning, bonding, filling, and surface treatment.
+5. **Cleaning Methods**: Appropriate techniques for removing dirt, salts, and old adhesives.
+6. **Bonding Strategy**: Recommend adhesives and techniques for rejoining fragments.
+7. **Gap Filling**: Methods for filling losses and achieving proper contours.
+8. **Surface Integration**: Techniques for matching glaze, color, and texture.
+9. **Reversibility**: Ensure treatments can be reversed if needed in the future.
+10. **Support & Display**: Recommendations for safe mounting and display.
+
+Balance completeness with historical integrity."""
+    }
+}
 
 # ---- HOME PAGE ----
 if st.session_state.page == 'home':
-
     if st.session_state.selected_feature is None:
-        st.markdown('<div class="main-header"><h1>🎨 ArtRestorer AI</h1><p>AI-Powered Cultural Heritage Preservation Assistant</p></div>', unsafe_allow_html=True)
-
-        st.markdown("### 🎯 Select a Restoration Feature")
-        st.markdown("Choose the type of artwork you want to restore:")
-        st.markdown("")
-
+        st.markdown('<div class="main-header"><h1>🎨 ArtRestorer AI</h1><p>AI-Powered Cultural Heritage Preservation</p></div>', unsafe_allow_html=True)
+        
+        st.markdown("### 🎯 Select a Restoration Type")
+        st.markdown("Choose from our specialized AI restoration tools designed for different art forms and periods.")
+        
         cols = st.columns(3)
-        for idx, (key, feature) in enumerate(RESTORATION_FEATURES.items()):
+        
+        for idx, (feature_key, feature) in enumerate(FEATURES.items()):
             with cols[idx % 3]:
                 st.markdown(f"""
                 <div class="feature-card">
-                    <h3>{feature['icon']} {feature['name']}</h3>
+                    <h3>{feature['icon']} {feature['name'].split(' ', 1)[1]}</h3>
                     <p>{feature['description']}</p>
                 </div>
                 """, unsafe_allow_html=True)
-                if st.button(f"Select {feature['icon']}", key=key, use_container_width=True):
-                    st.session_state.selected_feature = key
+                
+                if st.button(f"Select {feature['icon']}", key=f"btn_{feature_key}", use_container_width=True):
+                    st.session_state.selected_feature = feature_key
                     st.rerun()
-
+    
     else:
-        feature = RESTORATION_FEATURES[st.session_state.selected_feature]
+        feature = FEATURES[st.session_state.selected_feature]
         st.markdown(f'<div class="main-header"><h1>{feature["icon"]} {feature["name"]}</h1><p>{feature["description"]}</p></div>', unsafe_allow_html=True)
-
+        
         with st.form("restoration_form"):
-            st.markdown("### 📝 Enter Artwork Details")
+            st.markdown("### 📝 Artwork Details")
+            
+            input_data = {}
+            
+            if st.session_state.selected_feature == "baroque_painting":
+                artist = st.text_input("🎨 Artist/School", placeholder="e.g., Caravaggio, Rembrandt, Rubens School")
+                period = st.text_input("📅 Period", placeholder="e.g., Early Baroque (1600-1625), High Baroque")
+                medium = st.selectbox("🖌️ Medium", ["Oil on Canvas", "Oil on Wood Panel", "Tempera", "Mixed Media"])
+                damage = st.text_area("⚠️ Damage Description", placeholder="Describe cracks, darkened varnish, paint loss, canvas tears...")
+                input_data = {"artist": artist, "period": period, "medium": medium, "damage": damage}
 
-            if st.session_state.selected_feature == "baroque_restoration":
-                artwork_type = st.selectbox("🖼️ Artwork Type", ["Oil Painting", "Canvas Painting", "Wood Panel", "Copper Plate"])
-                artist = st.text_input("🎨 Artist (if known)", placeholder="e.g., Caravaggio, Rembrandt, Rubens")
-                damage = st.text_area("⚠️ Damage Description", placeholder="Describe damage in detail e.g., Top right corner has water damage with paint flaking and color fading...")
-                input_data = {"artwork_type": artwork_type, "artist": artist if artist else "Unknown", "damage": damage}
-
-            elif st.session_state.selected_feature == "renaissance_restoration":
-                artwork_type = st.selectbox("🖼️ Artwork Type", ["Oil Painting", "Tempera on Wood", "Fresco", "Canvas", "Wood Panel"])
-                artist = st.text_input("🎨 Artist (if known)", placeholder="e.g., Leonardo da Vinci, Michelangelo, Raphael")
-                damage = st.text_area("⚠️ Damage Description", placeholder="Describe damage in detail...")
-                input_data = {"artwork_type": artwork_type, "artist": artist if artist else "Unknown", "damage": damage}
+            elif st.session_state.selected_feature == "renaissance_painting":
+                artist = st.text_input("🎨 Artist/Region", placeholder="e.g., Leonardo da Vinci, Florentine School, Venetian")
+                period = st.text_input("📅 Period", placeholder="e.g., Early Renaissance (1400-1490), High Renaissance")
+                medium = st.selectbox("🖌️ Medium", ["Egg Tempera on Wood", "Oil on Canvas", "Fresco", "Mixed Tempera and Oil"])
+                damage = st.text_area("⚠️ Damage Description", placeholder="Describe condition issues, paint flaking, wood panel damage...")
+                input_data = {"artist": artist, "period": period, "medium": medium, "damage": damage}
 
             elif st.session_state.selected_feature == "mughal_miniature":
-                period = st.selectbox("📅 Period", ["Early Mughal (1526-1605)", "Classical Mughal (1605-1707)", "Late Mughal (1707-1857)"])
-                damage = st.text_area("⚠️ Damage Description", placeholder="Describe fading, tears, or missing sections...")
-                input_data = {"period": period, "damage": damage}
+                school = st.selectbox("🏛️ School/Period", ["Akbar Period", "Jahangir Period", "Shah Jahan Period", "Aurangzeb Period", "Later Mughal", "Provincial Mughal"])
+                subject = st.text_input("🎭 Subject Matter", placeholder="e.g., Court scene, Battle, Portrait, Garden, Religious")
+                material = st.selectbox("📜 Base Material", ["Paper (Wasli)", "Ivory", "Vellum", "Cloth"])
+                damage = st.text_area("⚠️ Damage Description", placeholder="Describe pigment loss, paper tears, gold work damage, binding issues...")
+                input_data = {"school": school, "subject": subject, "material": material, "damage": damage}
 
-            elif st.session_state.selected_feature == "sculpture_restoration":
-                material = st.selectbox("🪨 Material", ["Marble", "Bronze", "Sandstone", "Limestone", "Terracotta", "Wood", "Plaster"])
-                period = st.text_input("📅 Period/Style", placeholder="e.g., Classical Greek, Gothic, Renaissance, Modern")
-                sculpture_type = st.selectbox("🗿 Sculpture Type", ["Freestanding Statue", "Relief Sculpture", "Bust", "Figurine", "Architectural Element"])
-                damage = st.text_area("⚠️ Damage Description", placeholder="Describe cracks, missing parts, erosion, surface damage...")
-                input_data = {"material": material, "period": period, "sculpture_type": sculpture_type, "damage": damage}
+            elif st.session_state.selected_feature == "sculpture_3d":
+                sculpture_type = st.selectbox("🗿 Sculpture Type", ["Statue", "Bust", "Relief", "Architectural Element", "Figurine", "Monument"])
+                material = st.selectbox("🪨 Material", ["Marble", "Bronze", "Wood", "Stone (Limestone/Sandstone)", "Terracotta", "Plaster", "Mixed Materials"])
+                period = st.text_input("📅 Period/Style", placeholder="e.g., Classical Greek, Roman, Gothic, Baroque, Modern")
+                damage = st.text_area("⚠️ Damage Description", placeholder="Describe breaks, missing parts, surface erosion, patina loss, structural issues...")
+                input_data = {"sculpture_type": sculpture_type, "material": material, "period": period, "damage": damage}
 
             elif st.session_state.selected_feature == "textile_tapestry":
                 textile_type = st.selectbox("🧵 Textile Type", ["Wall Tapestry", "Embroidered Panel", "Carpet/Rug", "Ceremonial Banner", "Religious Textile"])
@@ -635,12 +635,14 @@ if st.session_state.page == 'home':
                         try:
                             prompt = feature["prompt_template"].format(**input_data)
 
-                            response = model.generate_content(
-                                prompt,
-                                generation_config=genai.types.GenerationConfig(
-                                    temperature=temperature,
-                                    max_output_tokens=2000,
-                                )
+                            # Updated API call for new google-genai package
+                            response = client.models.generate_content(
+                                model='gemini-1.5-flash',
+                                contents=prompt,
+                                config={
+                                    'temperature': temperature,
+                                    'max_output_tokens': 2000,
+                                }
                             )
 
                             result = response.text
@@ -661,6 +663,7 @@ if st.session_state.page == 'home':
 
                         except Exception as e:
                             st.error(f"❌ Error generating restoration plan: {str(e)}")
+                            st.info("💡 Tip: Make sure your GEMINI_API_KEY is valid in .streamlit/secrets.toml")
                 else:
                     st.error("⚠️ Please fill in all fields before generating a restoration plan.")
 
@@ -694,7 +697,7 @@ elif st.session_state.page == 'about':
         <h3>🎯 Mission</h3>
         <p>ArtRestorer AI bridges the gap between artificial intelligence and cultural preservation,
         helping museums, conservators, and heritage experts digitally reconstruct cultural masterpieces
-        through AI-generated restoration guidance using Google Gemini 2.0 Flash.</p>
+        through AI-generated restoration guidance using Google Gemini 1.5 Flash.</p>
     </div>
 
     <div class="info-card">
@@ -705,7 +708,7 @@ elif st.session_state.page == 'about':
             <li>Adjustable creativity level for different restoration needs</li>
             <li>Dark mode and light mode support</li>
             <li>Restoration history tracking</li>
-            <li>AI-powered using Google Gemini 2.0 Flash</li>
+            <li>AI-powered using Google Gemini 1.5 Flash</li>
         </ul>
     </div>
 
@@ -729,7 +732,7 @@ elif st.session_state.page == 'about':
 
     <div class="info-card">
         <h3>🔬 Technology Stack</h3>
-        <p><strong>AI Model:</strong> Google Gemini 2.0 Flash</p>
+        <p><strong>AI Model:</strong> Google Gemini 1.5 Flash</p>
         <p><strong>Framework:</strong> Streamlit</p>
         <p><strong>Language:</strong> Python</p>
         <p><strong>Purpose:</strong> Educational & Professional Art Conservation Support</p>
